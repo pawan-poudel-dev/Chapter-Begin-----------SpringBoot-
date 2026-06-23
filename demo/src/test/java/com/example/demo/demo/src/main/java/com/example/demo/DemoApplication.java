@@ -3,7 +3,6 @@ package com.example.demo;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootApplication
@@ -16,18 +15,6 @@ public class DemoApplication {
 
 	@GetMapping("/hello")
 	public String hello() {
-		return "Hello World! My first Spring Boot API";
+		return "Hello World! My first Spring Boot API!";
 	}
-
-	@GetMapping("/greet")
-	public String greet(@RequestParam String name) {
-		return "Hello " + name;
-	}
-	@GetMapping("/student")
-	public String student(
-			@RequestParam String name,
-			@RequestParam int age){
-		return "student Name:"+ name +" , Age: "+age;
-	}
-
 }
