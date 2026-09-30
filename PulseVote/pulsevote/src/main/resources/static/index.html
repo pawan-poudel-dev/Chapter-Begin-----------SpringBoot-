@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PulseVote — live polls</title>
+<style>
+:root{--bg:#0b1020;--card:#151b34;--txt:#eef1ff;--mut:#8b93b8;--a:#7c5cff;--b:#22d3ee}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:radial-gradient(circle at 20% 0,#1b2150,var(--bg) 60%);color:var(--txt);min-height:100vh;display:flex;justify-content:center;padding:32px 16px}
+.card{background:var(--card);border:1px solid #262e57;border-radius:20px;padding:28px;width:100%;max-width:560px;height:fit-content;box-shadow:0 20px 60px #0008}
+h1{margin:0 0 4px;font-size:28px;background:linear-gradient(90deg,var(--a),var(--b));-webkit-background-clip:text;color:transparent}
+p.s{color:var(--mut);margin:0 0 20px}input{width:100%;padding:12px 14px;margin:6px 0;border-radius:12px;border:1px solid #2d3766;background:#0e1329;color:var(--txt);font-size:15px}
+button{cursor:pointer;border:0;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:600;color:#fff;background:linear-gradient(90deg,var(--a),var(--b));margin-top:10px}
+button.g{background:#232b52}.opt{position:relative;overflow:hidden;border:1px solid #2d3766;border-radius:14px;margin:10px 0;padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between}
+.opt:hover{border-color:var(--b)}.bar{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,#7c5cff55,#22d3ee55);transition:width .6s cubic-bezier(.2,.8,.2,1)}
+.opt span{position:relative}.live{display:inline-flex;align-items:center;gap:6px;color:#4ade80;font-size:13px}.live:before{content:"";width:8px;height:8px;border-radius:50%;background:#4ade80;animation:p 1.2s infinite}
+@keyframes p{50%{opacity:.2}}.share{display:flex;gap:16px;align-items:center;margin-top:20px;color:var(--mut);font-size:13px;word-break:break-all}.share img{border-radius:10px;background:#fff;padding:4px}
+</style></head><body><div class="card" id="app"></div>
+<script>
+const app=document.getElementById('app');
+const api=(u,o)=>fetch(u,o).then(r=>{if(!r.ok)throw new Error(r.status);return r.json()});
+let es;
+
+function home(){
+  if(es)es.close();
+  app.innerHTML=`<h1>⚡ PulseVote</h1><p class="s">Create a poll. Share it. Watch votes land live.</p>
+  <input id="q" placeholder="Ask a question…"><div id="opts"></div>
+  <button class="g" onclick="addOpt()">+ Add option</button><br><button onclick="create()">Create poll</button>`;
+  addOpt('');addOpt('');
+}
+function addOpt(v){const i=document.createElement('input');i.placeholder='Option';i.className='o';document.getElementById('opts').appendChild(i)}
+async function create(){
+  const question=document.getElementById('q').value;
+  const options=[...document.querySelectorAll('.o')].map(i=>i.value);
+  try{const p=await api('/api/polls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,options})});location.hash=p.id}
+  catch(e){alert('Need a question and 2-6 options')}
+}
+function render(p){
+  const total=p.options.reduce((s,o)=>s+o.votes,0);
+  const voted=localStorage.getItem('voted'+p.id);
+  const url=location.href;
+  app.innerHTML=`<span class="live">LIVE · ${total} vote${total==1?'':'s'}</span><h1 style="margin-top:8px">${esc(p.question)}</h1>
+  <p class="s">${voted?'Thanks for voting!':'Tap an option to vote'}</p>
+  ${p.options.map(o=>`<div class="opt" onclick="vote(${p.id},${o.id})"><div class="bar" style="width:${total?o.votes/total*100:0}%"></div><span>${esc(o.text)}</span><span>${total?Math.round(o.votes/total*100):0}% · ${o.votes}</span></div>`).join('')}
+  <div class="share"><img width="96" height="96" src="https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=${encodeURIComponent(url)}"><div>Share this poll:<br>${url}<br><a href="#" style="color:var(--b)">+ New poll</a></div></div>`;
+}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function vote(pid,oid){
+  if(localStorage.getItem('voted'+pid))return alert('You already voted!');
+  localStorage.setItem('voted'+pid,1);
+  render(await api(`/api/polls/${pid}/vote/${oid}`,{method:'POST'}));
+}
+async function open(id){
+  try{render(await api('/api/polls/'+id))}catch(e){return home()}
+  if(es)es.close();
+  es=new EventSource(`/api/polls/${id}/stream`);
+  es.addEventListener('update',e=>render(JSON.parse(e.data)));
+}
+function route(){const id=location.hash.slice(1);id?open(id):home()}
+addEventListener('hashchange',route);route();
+</script></body></html>
