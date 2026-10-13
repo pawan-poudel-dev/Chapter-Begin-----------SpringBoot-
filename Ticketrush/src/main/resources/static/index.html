@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TicketRush</title>
+<style>
+:root{--bg:#0a0a10;--panel:#14141e;--line:#2a2a3d;--txt:#f1f0ea;--mut:#8a8aa3;--gold:#ffd23f;--bad:#ff3b5c;--ok:#2dff9a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#2a1f05,var(--bg) 55%);color:var(--txt);font-family:system-ui,sans-serif;padding:28px 14px;display:flex;justify-content:center;min-height:100vh}
+.wrap{width:100%;max-width:820px}h1{margin:0;font-size:38px;letter-spacing:-1px}h1 em{color:var(--gold);font-style:normal}
+.sub{color:var(--mut);margin:6px 0 22px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.strats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.s{border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;background:#0d0d15}.s b{display:block;margin-bottom:4px}.s span{font-size:12px;color:var(--mut)}
+.s.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold) inset}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-top:14px}label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px}
+input{width:110px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0d0d15;color:var(--txt);font-size:15px}
+button{border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;background:var(--gold);color:#241a00}button.g{background:transparent;color:var(--txt);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:wait}
+.card{border:1px dashed #3b3b55;border-radius:16px;padding:18px;margin-bottom:16px;background:var(--panel)}
+.head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}.tag{font:700 12px ui-monospace,monospace;letter-spacing:2px;color:var(--gold)}
+.verdict{font-size:20px;font-weight:800;margin:10px 0}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}.stat{background:#0d0d15;border-radius:10px;padding:10px}.stat small{color:var(--mut);display:block;font-size:11px}.stat b{font-size:22px}
+.grid{display:flex;flex-wrap:wrap;gap:3px;margin-top:10px}.grid i{width:9px;height:9px;border-radius:2px;background:#26263a}.grid i.d1{background:var(--ok)}.grid i.d2{background:var(--bad)}
+.legend{font-size:12px;color:var(--mut);margin-top:8px}.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin:0 4px 0 10px}
+.err{color:var(--bad)}@media(max-width:560px){.strats{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><div class="wrap">
+<h1>Ticket<em>Rush</em></h1><p class="sub">500 bots. 50 tickets. One millisecond of bad luck. Watch a race condition happen.</p>
+<div class="panel">
+  <div class="strats" id="strats"></div>
+  <div class="row">
+    <div><label>Tickets in stock</label><input id="stock" type="number" value="50" min="1" max="1000"></div>
+    <div><label>Bots attacking</label><input id="bots" type="number" value="500" min="1" max="5000"></div>
+    <button id="go" onclick="launch()">Launch drop</button>
+    <button class="g" id="all" onclick="runAll()">Compare all 3</button>
+  </div>
+  <div class="err" id="err"></div>
+</div>
+<div id="results"></div></div>
+<script>
+const INFO={
+ NAIVE:{t:'Naive',d:'Check stock, then buy. Two separate steps.'},
+ SYNCHRONIZED:{t:'Synchronized',d:'One buyer at a time. Safe, but slow.'},
+ ATOMIC:{t:'Atomic (CAS)',d:'Reserve in one atomic step. Safe and fast.'}};
+let strat='NAIVE';
+const $=id=>document.getElementById(id);
+function drawStrats(){$('strats').innerHTML=Object.entries(INFO).map(([k,v])=>`<div class="s ${k===strat?'on':''}" onclick="strat='${k}';drawStrats()"><b>${v.t}</b><span>${v.d}</span></div>`).join('')}
+drawStrats();
+async function simulate(s){
+  const url=`/api/simulate?strategy=${s}&stock=${$('stock').value}&bots=${$('bots').value}`;
+  const res=await fetch(url,{method:'POST'});
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.message||'Request failed ('+res.status+')')}
+  return res.json();
+}
+function show(r){
+  const bad=r.oversold>0;
+  const verdict=bad?`<div class="verdict bad">💥 OVERSOLD by ${r.oversold}. You sold tickets that don't exist.</div>`
+    :r.ticketsIssued===r.stock?`<div class="verdict ok">✅ Exactly ${r.stock} sold. No oversell.</div>`
+    :`<div class="verdict ok">✅ ${r.ticketsIssued} sold (fewer bots than tickets).</div>`;
+  const dots=[...r.outcomes].sort((a,b)=>(a===0)-(b===0)||a-b).map(o=>`<i class="d${o}"></i>`).join('');
+  $('results').insertAdjacentHTML('afterbegin',`<div class="card"><div class="head"><span class="tag">${INFO[r.strategy].t.toUpperCase()}</span></div>${verdict}
+   <div class="stats"><div class="stat"><small>IN STOCK</small><b>${r.stock}</b></div><div class="stat"><small>TICKETS ISSUED</small><b class="${bad?'bad':''}">${r.ticketsIssued}</b></div>
+   <div class="stat"><small>OVERSOLD</small><b class="${bad?'bad':'ok'}">${r.oversold}</b></div><div class="stat"><small>TIME</small><b>${r.millis} ms</b></div></div>
+   <div class="grid">${dots}</div>
+   <div class="legend"><i style="background:var(--ok)"></i>valid ticket<i style="background:var(--bad)"></i>oversold<i style="background:#26263a"></i>missed out</div></div>`);
+}
+async function busy(fn){$('go').disabled=$('all').disabled=true;$('err').textContent='';
+  try{await fn()}catch(e){$('err').textContent=e.message}finally{$('go').disabled=$('all').disabled=false}}
+const launch=()=>busy(async()=>show(await simulate(strat)));
+const runAll=()=>busy(async()=>{for(const s of ['NAIVE','SYNCHRONIZED','ATOMIC'])show(await simulate(s))});
+</script></body></html>
