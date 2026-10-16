@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClubBouncer</title>
+<style>
+:root{--bg:#09070f;--panel:#15111f;--line:#2c2540;--txt:#f3effa;--mut:#8f86a8;--pink:#ff2e93;--cyan:#27e1ff;--ok:#38f29a;--no:#ff4d6d}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#3a0d3d,var(--bg) 55%);color:var(--txt);font-family:system-ui,sans-serif;padding:28px 14px;display:flex;justify-content:center;min-height:100vh}
+.wrap{width:100%;max-width:820px}h1{margin:0;font-size:38px;letter-spacing:-1px}h1 em{color:var(--pink);font-style:normal}
+.sub{color:var(--mut);margin:6px 0 20px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px}
+.algos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.a{border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;background:#0f0c18}
+.a b{display:block;margin-bottom:4px}.a span{display:block;font-size:12px;color:var(--mut);margin-top:2px}.a.on{border-color:var(--pink);box-shadow:0 0 0 1px var(--pink) inset}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:14px}label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px}
+input{width:150px;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0f0c18;color:var(--txt);font-size:15px}
+button{border:0;border-radius:10px;padding:11px 16px;font-weight:800;cursor:pointer;background:var(--pink);color:#1a0210}button.g{background:transparent;color:var(--txt);border:1px solid var(--line)}
+button.c{background:var(--cyan);color:#021419}button:disabled{opacity:.5;cursor:wait}
+.slots{display:flex;gap:8px;margin:6px 0}.slots i{width:34px;height:34px;border-radius:9px;background:#1f1a2e;border:1px solid var(--line);transition:.25s}
+.slots i.on{background:var(--ok);border-color:var(--ok);box-shadow:0 0 14px #38f29a66}.rule{color:var(--mut);font-size:13px}
+.dots{display:flex;flex-wrap:wrap;gap:3px;margin-top:10px}.dots i{width:10px;height:10px;border-radius:3px}.dots i.ok{background:var(--ok)}.dots i.no{background:var(--no)}
+.log{font:12px/1.7 ui-monospace,Consolas,monospace;max-height:230px;overflow:auto;margin-top:10px}.log .ok{color:var(--ok)}.log .no{color:var(--no)}
+.res{border:1px dashed #4a3a66;border-radius:14px;padding:16px;margin-top:14px}.res h3{margin:0 0 10px}
+.bar{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:14px}.bar .n{width:150px}.bar .t{flex:1;background:#0f0c18;border-radius:6px;height:20px;position:relative}
+.bar .f{height:100%;border-radius:6px;background:var(--ok);transition:width .6s}.bar .f.bad{background:var(--no)}.bar .v{width:34px;text-align:right;font-weight:800}
+.say{margin-top:10px;color:var(--mut)}@media(max-width:600px){.algos{grid-template-columns:1fr}.bar .n{width:105px}}
+</style></head><body><div class="wrap">
+<h1>Club<em>Bouncer</em></h1><p class="sub">The door lets only a few guests in at a time. Pick a bouncer and try to get past.</p>
+
+<div class="panel">
+  <div class="algos" id="algos"></div>
+  <div class="row">
+    <div><label>Guest name</label><input id="guest" value="guest" maxlength="24"></div>
+    <button onclick="knock()">Knock once</button>
+    <button onclick="spam(20)">Spam 20</button>
+    <button class="g" onclick="clearLog()">Clear log</button>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="rule" id="rule">&nbsp;</div>
+  <div class="slots" id="slots"></div>
+  <div class="rule">Green squares are spots left for this guest, updated live.</div>
+  <div class="dots" id="dots"></div>
+  <div class="log" id="log"></div>
+</div>
+
+<div class="panel">
+  <b>The boundary attack</b>
+  <p class="rule">Sneak requests in just before and just after a time window resets. It takes about 11 seconds and runs against all three bouncers at once.</p>
+  <button class="c" id="atk" onclick="attack()">Run the attack</button>
+  <div id="atkOut"></div>
+</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ALGOS={
+ FIXED_WINDOW:{t:'Fixed window',d:'Counts guests in fixed blocks of time.',w:'Weak spot: the edge between two blocks.'},
+ SLIDING_WINDOW:{t:'Sliding window',d:'Remembers when each guest arrived.',w:'Costs more memory, but precise.'},
+ TOKEN_BUCKET:{t:'Token bucket',d:'Spots refill steadily. Bursts are fine.',w:'Cheap, and what many APIs use.'}};
+let algo='TOKEN_BUCKET';
+function drawAlgos(){$('algos').innerHTML=Object.entries(ALGOS).map(([k,v])=>`<div class="a ${k===algo?'on':''}" onclick="algo='${k}';drawAlgos();poll()"><b>${v.t}</b><span>${v.d}</span><span>${v.w}</span></div>`).join('')}
+drawAlgos();
+const name=()=>encodeURIComponent($('guest').value.trim()||'guest');
+
+async function knock(){
+  try{
+    const r=await fetch(`/api/enter?algo=${algo}&guest=${name()}`);const j=await r.json();
+    const ok=r.status===200;
+    $('dots').insertAdjacentHTML('beforeend',`<i class="${ok?'ok':'no'}"></i>`);
+    while($('dots').children.length>200)$('dots').firstChild.remove();
+    const t=new Date().toLocaleTimeString();
+    const line=ok?`${t}  ${ALGOS[algo].t}  IN   (${j.remaining} spots left)`:`${t}  ${ALGOS[algo].t}  BLOCKED  429, retry in ${r.headers.get('Retry-After')}s`;
+    $('log').insertAdjacentHTML('afterbegin',`<div class="${ok?'ok':'no'}">${esc(line)}</div>`);
+    while($('log').children.length>80)$('log').lastChild.remove();
+    poll();
+  }catch(e){}
+}
+async function spam(n){for(let i=0;i<n;i++)await knock()}
+function clearLog(){$('log').innerHTML='';$('dots').innerHTML=''}
+
+async function poll(){
+  try{
+    const s=await (await fetch(`/api/status?algo=${algo}&guest=${name()}`)).json();
+    $('rule').textContent=`${ALGOS[algo].t}: ${s.limit} guests every ${s.windowSeconds} seconds`;
+    $('slots').innerHTML=Array.from({length:s.limit},(_,i)=>`<i class="${i<s.remaining?'on':''}"></i>`).join('');
+  }catch(e){}
+}
+setInterval(poll,400);poll();
+
+async function attack(){
+  const btn=$('atk');btn.disabled=true;
+  const out=$('atkOut');
+  const cfg=await (await fetch('/api/status?algo=TOKEN_BUCKET&guest=cfg')).json();
+  const L=cfg.limit,W=cfg.windowSeconds,total=(W+0.2);
+  const id=Math.random().toString(36).slice(2,6),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const hit=async a=>(await fetch(`/api/enter?algo=${a}&guest=attacker-${id}`)).status===200;
+  const t0=Date.now();
+  const tick=setInterval(()=>{out.innerHTML=`<div class="say">Running... ${((Date.now()-t0)/1000).toFixed(1)}s of ${total.toFixed(0)}s</div>`},200);
+  const res={};
+  await Promise.all(Object.keys(ALGOS).map(async a=>{
+    await hit(a);                               // opens the window
+    await sleep((W-1)*1000);                    // wait until just before the edge
+    let ok=0;
+    for(let i=0;i<L-1;i++) if(await hit(a)) ok++;
+    await sleep(1150);                          // just after the edge
+    for(let i=0;i<L;i++) if(await hit(a)) ok++;
+    res[a]=ok;
+  }));
+  clearInterval(tick);
+  const max=2*L-1;
+  out.innerHTML=`<div class="res"><h3>Allowed in about one second around the reset</h3>`+
+    Object.keys(ALGOS).map(a=>`<div class="bar"><span class="n">${ALGOS[a].t}</span><div class="t"><div class="f ${res[a]>L?'bad':''}" style="width:${res[a]/max*100}%"></div></div><span class="v">${res[a]}</span></div>`).join('')+
+    `<div class="say">The rule is ${L} per ${W} seconds. ${res.FIXED_WINDOW>L?`The fixed window let ${res.FIXED_WINDOW} through, because the count reset right between the two bursts. `:''}The sliding window and token bucket kept it at ${res.SLIDING_WINDOW} and ${res.TOKEN_BUCKET}.</div></div>`;
+  btn.disabled=false;
+}
+</script></body></html>
