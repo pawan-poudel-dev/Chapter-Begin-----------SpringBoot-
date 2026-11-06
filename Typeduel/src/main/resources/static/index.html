@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TypeDuel</title>
+<style>
+:root{--bg:#07080f;--panel:#12141f;--line:#232640;--txt:#e8eaff;--mut:#7d83a8;--neon:#39ff9c;--pink:#ff3d81;--cyan:#38d9ff}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -10%,#1a1f4a,var(--bg) 55%);color:var(--txt);font-family:system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:28px 14px}
+.wrap{width:100%;max-width:760px}h1{margin:0;font-size:38px;font-style:italic;letter-spacing:-1px}h1 b{color:var(--neon)}h1 i{color:var(--pink)}
+.sub{color:var(--mut);margin:4px 0 22px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:16px}
+input{width:100%;padding:12px 14px;margin:6px 0;border-radius:10px;border:1px solid var(--line);background:#0a0c16;color:var(--txt);font-size:16px}
+.row{display:flex;gap:10px}button{border:0;border-radius:10px;padding:12px 18px;font-weight:800;cursor:pointer;color:#04120b;background:var(--neon);margin-top:8px}
+button.alt{background:transparent;color:var(--txt);border:1px solid var(--line)}[hidden]{display:none!important}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.code{font:800 22px ui-monospace,monospace;color:var(--cyan);letter-spacing:4px}
+.lane{margin:12px 0}.lane .meta{display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px}.lane .meta span:last-child{color:var(--mut)}
+.track{height:14px;background:#0a0c16;border-radius:8px;position:relative;border:1px solid var(--line)}
+.fill{position:absolute;inset:0 auto 0 0;border-radius:8px;background:linear-gradient(90deg,var(--cyan),var(--neon));transition:width .25s}
+.car{position:absolute;top:-9px;font-size:20px;transition:left .25s;transform:translateX(-50%)}.me .fill{background:linear-gradient(90deg,var(--pink),#ffb84d)}
+#status{font-size:26px;font-weight:800;text-align:center;margin:8px 0;min-height:36px}
+#text{font:20px/1.7 ui-monospace,Consolas,monospace;background:#0a0c16;border:1px solid var(--line);border-radius:12px;padding:16px;margin:10px 0;user-select:none;word-break:break-word}
+.ok{color:var(--neon)}.bad{background:#ff3d8155;color:#ff9ab9}.cur{border-bottom:2px solid var(--cyan)}.rest{color:var(--mut)}
+</style></head><body><div class="wrap">
+<h1><b>Type</b><i>Duel</i></h1><p class="sub">Real-time multiplayer typing races. Fast fingers only.</p>
+
+<div class="card" id="lobby">
+  <input id="name" maxlength="16" placeholder="Your name">
+  <input id="room" maxlength="8" placeholder="Room code (to join a friend)">
+  <div class="row"><button onclick="createRoom()">Create room</button><button class="alt" onclick="join()">Join room</button></div>
+</div>
+
+<div id="race" hidden>
+  <div class="card top"><div>Room <span class="code" id="rc"></span></div>
+    <div><button class="alt" onclick="copyInvite()">Copy invite link</button></div></div>
+  <div class="card"><div id="lanes"></div></div>
+  <div id="status"></div>
+  <div class="card" id="play" hidden><div id="text"></div>
+    <input id="inp" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type here when the race starts" disabled></div>
+  <div class="row" style="justify-content:center"><button id="startBtn" onclick="send({type:'start'})" hidden>Start race</button>
+  <button id="againBtn" onclick="send({type:'again'})" hidden>Race again</button></div>
+</div></div>
+<script>
+const $=id=>document.getElementById(id);
+let ws,me,st,prev='',inRace=false,cd;
+const q=new URLSearchParams(location.search).get('room'); if(q)$('room').value=q.toUpperCase();
+const send=o=>ws&&ws.readyState===1&&ws.send(JSON.stringify(o));
+
+function createRoom(){$('room').value=Math.random().toString(36).slice(2,6).toUpperCase();join()}
+function join(){
+  const name=$('name').value.trim(),room=$('room').value.trim();
+  if(!name||!room)return alert('Enter your name and a room code');
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  ws.onopen=()=>send({type:'join',room,name});
+  ws.onmessage=e=>on(JSON.parse(e.data));
+  ws.onclose=()=>{if(inRace){alert('Disconnected from server');location.href='/'}};
+}
+function on(m){
+  if(m.type==='you')me=m.id;
+  else if(m.type==='error'){inRace=false;alert(m.message);ws.close()}
+  else if(m.type==='state')render(m);
+}
+function render(m){
+  inRace=true;st=m;$('lobby').hidden=true;$('race').hidden=false;$('rc').textContent=m.room;
+  $('lanes').innerHTML=m.players.map(p=>`<div class="lane ${p.id===me?'me':''}"><div class="meta"><span>${p.rank?['','🥇','🥈','🥉'][p.rank]||p.rank+'.':''} ${esc(p.name)}${p.id===me?' (you)':''}</span><span>${p.wpm} WPM</span></div>
+    <div class="track"><div class="fill" style="width:${p.progress}%"></div><div class="car" style="left:${Math.max(2,p.progress)}%">🏎️</div></div></div>`).join('');
+  $('startBtn').hidden=m.state!=='WAITING';$('againBtn').hidden=m.state!=='DONE';
+  $('play').hidden=m.state==='WAITING';
+  const inp=$('inp');
+  if(m.state!==prev){
+    if(m.state==='WAITING'){$('status').textContent='Waiting for racers. Share the invite link.';inp.value='';inp.disabled=true}
+    if(m.state==='COUNTDOWN'){inp.value='';inp.disabled=true;let n=3;$('status').textContent=n;clearInterval(cd);cd=setInterval(()=>{n--;$('status').textContent=n>0?n:'';if(n<=0)clearInterval(cd)},1000)}
+    if(m.state==='RACING'){clearInterval(cd);$('status').textContent='GO!';inp.disabled=false;inp.value='';inp.focus()}
+    if(m.state==='DONE'){inp.disabled=true;const w=[...m.players].sort((a,b)=>a.rank-b.rank)[0];$('status').textContent=w?`${w.name} wins at ${w.wpm} WPM!`:'Race over'}
+    prev=m.state;
+  }
+  paint();
+}
+function prefix(v,t){let i=0;while(i<v.length&&i<t.length&&v[i]===t[i])i++;return i}
+function paint(){
+  if(!st||!st.text)return;const v=$('inp').value,t=st.text,p=prefix(v,t),el=$('text');el.innerHTML='';
+  [...t].forEach((c,i)=>{const s=document.createElement('span');s.textContent=c;
+    s.className=i<p?'ok':i<v.length?'bad':i===v.length?'cur rest':'rest';el.appendChild(s)});
+}
+$('inp').oninput=()=>{if(!st||st.state!=='RACING')return;send({type:'progress',pos:prefix($('inp').value,st.text)});paint()};
+$('inp').onpaste=e=>e.preventDefault();
+function copyInvite(){navigator.clipboard.writeText(location.origin+'/?room='+st.room);$('status').textContent='Invite link copied!'}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+</script></body></html>
